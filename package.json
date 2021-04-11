@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "tsc main.ts && node main.js",
+    "start": "tsc --build tsconfig.json && node main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -14,5 +14,8 @@
     "@babel/types": "^7.13.0",
     "@types/node": "^14.14.35",
     "recast": "^0.20.4"
+  },
+  "dependencies": {
+    "electron": "^12.0.1"
   }
 }

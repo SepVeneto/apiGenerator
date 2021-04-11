@@ -1,42 +1,38 @@
 import * as fs from 'fs';
-import { parse, visit, types, prettyPrint, print } from 'recast';
+import { parse, visit, types, prettyPrint } from 'recast';
 import * as babel from '@babel/parser';
 import * as path from 'path';
-import { isTaggedTemplateExpression, TSMethodSignature } from '_@babel_types@7.13.0@@babel/types';
+import diffMethod from './myers';
+import { Identifier, TSExpressionWithTypeArguments, TSMethodSignature } from '_@babel_types@7.13.0@@babel/types';
 const TNT = types.namedTypes;
-type AnyType = {
-  [key: string]: any,
-}
 const {
   file,
   program,
   exportDefaultDeclaration,
   tsInterfaceDeclaration,
   tsInterfaceBody,
-  objectMethod,
-  interfaceDeclaration,
   tsMethodSignature,
   identifier,
-  objectPattern,
-  tsTypeParameter,
   tsNumberKeyword,
   tsStringKeyword,
   tsAnyKeyword,
   tsNullKeyword,
   tsVoidKeyword,
-  tsBooleanKeyword,
   tsUndefinedKeyword,
   tsObjectKeyword,
-  tsArrayType,
   tsTypeAnnotation,
   tsTypeParameterInstantiation,
   tsTypeReference,
 } = types.builders;
 
-let interfaceBody = {};
-let tsInstanceBody = {};
-const BASE_PATH = path.join(__dirname, 'api');
-const fileList = [];
+interface InterfaceBody {
+  [key: string]: types.namedTypes.TSMethodSignature
+}
+
+let interfaceBody = new Map<string, types.namedTypes.TSMethodSignature>();
+let tsInstanceBody = new Map<string, types.namedTypes.TSMethodSignature>();
+const BASE_PATH = path.join(__dirname, 'modules');
+const fileList: any[] = [];
 fs.promises.readdir(BASE_PATH, { encoding: 'utf-8' }).then(files => {
   files.forEach(file => {
     /.*\.js/.test(file) && fileList.push(file);
@@ -52,7 +48,7 @@ fs.promises.readdir(BASE_PATH, { encoding: 'utf-8' }).then(files => {
       const astTs = parse(apiTs, { parser: require('recast/parsers/typescript') })
       visitAst(astTs);
       visitAst(astJs, tsInstanceBody);
-      const nodes = astTs.program.body.filter(item => !TNT.ExportDefaultDeclaration.check(item))
+      const nodes = astTs.program.body.filter((item: any) => !TNT.ExportDefaultDeclaration.check(item))
       const nodeBody = exportDefaultDeclaration(
         tsInterfaceDeclaration(
           identifier(name), tsInterfaceBody(diff(interfaceBody, tsInstanceBody))
@@ -60,8 +56,10 @@ fs.promises.readdir(BASE_PATH, { encoding: 'utf-8' }).then(files => {
       );
       const tsFile = file(program([ ...(nodes || []), nodeBody]));
       resFile = prettyPrint(tsFile, { tabWidth: 2 }).code;
+      console.log(`更新声明文件：${name}`)
     } catch (err) {
-      console.log('创建声明文件')
+      err && console.log(err)
+      console.log(`创建声明文件：${name}`)
       visitAst(astJs);
       const tsFile = file(
         program(
@@ -78,19 +76,77 @@ fs.promises.readdir(BASE_PATH, { encoding: 'utf-8' }).then(files => {
     }
 
     fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
-    interfaceBody = {};
-    tsInstanceBody = {};
+    interfaceBody.clear()
+    tsInstanceBody.clear()
   })
 })
-function diff(jsList, tsList) {
-  return Object.keys(jsList).reduce((res, key) => {
-    if (tsList[key]) {
-      res.push(tsList[key]);
-    } else {
-      res.push(jsList[key])
+function generateMethod(method: types.namedTypes.TSMethodSignature) {
+  return {
+    name: (<types.namedTypes.Identifier>method.key).name,
+    params: (method.parameters).map((item) => {
+      const inst = <types.namedTypes.TSTypeParameter>item;
+      return {
+        name: inst.name,
+        type: inst.typeAnnotation?.typeAnnotation?.type
+      }
+    }),
+    comments: method.comments?.map(item => item.value),
+  };
+}
+function hash(h: number, c: number) {
+  return c + (h << 7 ) | h >> (8 * 8 - 7)
+}
+function hashMethod(params: types.namedTypes.TSMethodSignature) {
+  const methodRes = generateMethod(params)
+  const buffer = Buffer.from(JSON.stringify(methodRes));
+  const hashValue = buffer.reduce((curr, hashValue) => {
+    return hash(hashValue, curr);
+  }, 0)
+  return hashValue;
+}
+function diff(jsList: Map<string, types.namedTypes.TSMethodSignature>, tsList: Map<string, types.namedTypes.TSMethodSignature>) {
+  const jsHash = [...jsList.entries()].reduce<Map<number, string>>((obj, [name, item]) => {
+    const hash = hashMethod(item);
+    obj.set(hash, name);
+    return obj;
+  }, new Map());
+  const tsHash = [...tsList.entries()].reduce<Map<number, string>>((obj, [name, item]) => {
+    const hash = hashMethod(item);
+    obj.set(hash, name);
+    return obj;
+  }, new Map());
+  const operate = diffMethod(tsHash, jsHash);
+  let jsIndex = 0;
+  let tsIndex = 0;
+  const res: types.namedTypes.TSMethodSignature[] = [];
+  const jsValues = [...jsList.values()];
+  const tsValues = [...tsList.values()];
+  if (operate.length === 0) {
+    return [...tsValues];
+  }
+  operate.forEach(item => {
+    switch (item) {
+      case 'insert':
+        res.push(jsValues[jsIndex++]);
+        break;
+      case 'move':
+        res.push(tsValues[tsIndex++]);
+        ++jsIndex;
+        break;
+      case 'delete':
+        ++tsIndex;
+        break;
     }
-    return res;
-  }, [])
+  })
+  return res;
+  // return Object.keys(jsList).reduce((res, key) => {
+  //   if (tsList[key]) {
+  //     res.push(tsList[key]);
+  //   } else {
+  //     res.push(jsList[key])
+  //   }
+  //   return res;
+  // }, [])
 }
 function visitAst(ast: types.ASTNode, existNode?: AnyType) {
   visit(ast, {
@@ -99,7 +155,7 @@ function visitAst(ast: types.ASTNode, existNode?: AnyType) {
         const value = item.value.replace(/\r\n */g, '\r\n ');
         return types.builders.commentBlock(value)
       })
-      tsInstanceBody[(<types.namedTypes.Identifier>path.node.key).name] = path.node;
+      tsInstanceBody.set((<types.namedTypes.Identifier>path.node.key).name, path.node);
       this.traverse(path);
     },
     visitObjectMethod(path) {
@@ -118,14 +174,28 @@ function visitAst(ast: types.ASTNode, existNode?: AnyType) {
         })
       });
       astRes.comments = astParam.comments;
-      // console.log(prettyPrint(astRes).code);
-      // console.log(astRes)
-      // text += prettyPrint(astRes).code;
-      interfaceBody[astParam.name] = astRes
+      astRes.comments?.forEach(item => {
+        if (TNT.CommentBlock.check(item)) {
+          item.value = formatComments(item.value);
+        }
+      })
+      interfaceBody.set(astParam.name, astRes)
 
       this.traverse(path);
     }
   })
+}
+
+function formatComments(comments: string) {
+  if (/ *\*/g.test(comments)) {
+    return comments
+      .replace(/ *\*/g, ' *')
+      .replace(/\r\n/g, '%^&')
+      .trim()
+      .replace(/\%\^\&/g, '\r\n') + ' '
+  } else {
+    return comments;
+  }
 }
 
 function generateReturns(returns: string) {
@@ -142,10 +212,10 @@ function generateReturns(returns: string) {
 }
 
 function parseParams(node: types.namedTypes.ObjectMethod) {
-  const astParam = {
+  const astParam: AnyType = {
     name: '',
     params: {},
-    return: 'void',
+    return: 'Promise',
     comments: [],
   };
   const params = node.params.map((item) => {
@@ -154,13 +224,13 @@ function parseParams(node: types.namedTypes.ObjectMethod) {
     }
     return (<types.namedTypes.Identifier>item).name;
   })
-  const paramsType = {};
+  const paramsType: AnyType = {};
   node.comments?.forEach(item => {
     const regExp = /@(param|returns) {(.*)}\S*(.*)/;
     item.value.split(`\r\n`).forEach(each => {
       const [,catalog, type, name] = regExp.exec(each) || [];
       if (catalog === 'param') {
-        paramsType[name.trim()] = type;
+        paramsType[name.trim().split(' ')[0]] = type;
       } else if (catalog === 'returns') {
         astParam.return = type;
       }
@@ -172,28 +242,28 @@ function parseParams(node: types.namedTypes.ObjectMethod) {
   astParam.name = (<types.namedTypes.Identifier>node.key).name;
   // console.log(node.comments.value)
   astParam.comments = node.comments;
-  astParam.comments?.forEach(item => {
-    item.value = item.value.replace(/\\r\\n */, '\r\n');
-  })
+  // astParam.comments?.forEach(item => {
+  //   item.value = item.value.replace(/\\r\\n */g, '\r\n');
+  // })
   return astParam;
 }
 
 function generateParams(paramsList: AnyType) {
-  return Object.entries(paramsList).reduce((params, [key, value]) => {
+  return Object.entries(paramsList).reduce<types.namedTypes.Identifier[]>((params, [key, value]) => {
     if (!key) {
-      return null;
+      return params;
     }
     const name = identifier(key);
-    const type = {
-      number: tsNumberKeyword(),
-      string: tsStringKeyword(),
-      null: tsNullKeyword(),
-      object: tsObjectKeyword(),
-      undefined: tsUndefinedKeyword(),
+    const type: AnyType = {
+      'number': tsNumberKeyword(),
+      'string': tsStringKeyword(),
+      'null': tsNullKeyword(),
+      'object': tsObjectKeyword(),
+      'undefined': tsUndefinedKeyword(),
       '*': tsAnyKeyword(),
-    }[value];
+    };
     name.typeAnnotation = tsTypeAnnotation.from({
-      typeAnnotation: type
+      typeAnnotation: type[<string>value]
     })
     params.push(name);
     return params;
