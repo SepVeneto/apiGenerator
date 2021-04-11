@@ -34,10 +34,10 @@ export default {
   /**
    * 前置任务与主任务绑定
    * @param {number} id 任务ID
-   * @param {number} preIds 主任务ID
+   * @param {number} preId 主任务ID
    * @returns
    */
-  bindPreTask(id, preIds) {
+  bindPreTasks(id, preId) {
     return http({
       method: 'post',
       url: '/service/pre/config/create',

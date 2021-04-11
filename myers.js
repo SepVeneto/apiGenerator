@@ -85,16 +85,15 @@ function logDiff(src, dist, operate) {
     operate.forEach(item => {
         switch (item) {
             case 'insert':
-                // console.log(`${'\033[42;30m'}+${dist[distIndex++]}${'\033[0m'}`);
-                console.log(`+${dist[distIndex++]}`);
+                console.log(`${"\x1b[42;30m"}+${dist[distIndex++]}${"\x1b[0m"}`);
+                // console.log(`+${dist[distIndex++]}`);
                 break;
             case 'move':
                 console.log(` ${src[srcIndex++]} `);
                 ++distIndex;
                 break;
             case 'delete':
-                // console.log(`${'\033[41;30m'}-${src[srcIndex++]}${'\033[0m'}`);
-                console.log(`-${src[srcIndex++]}`);
+                console.log(`${"\x1b[41;30m"}-${src[srcIndex++]}${"\x1b[0m"}`);
                 break;
         }
     });
@@ -114,6 +113,9 @@ function diff(src, dist) {
         distObj.keys = [...dist.keys()];
         distObj.values = [...dist.values()];
     }
+    else {
+        distObj.keys = distObj.values = src;
+    }
     const srcKeys = srcObj.keys;
     const distKeys = distObj.keys;
     const traceV = travse(srcKeys, distKeys);
@@ -130,3 +132,4 @@ function diff(src, dist) {
 exports.default = diff;
 // console.log(traceV)
 // console.log(traceV, trace)
+diff('ABC', 'BDA');
