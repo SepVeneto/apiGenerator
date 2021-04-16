@@ -64,6 +64,32 @@ tsc
 node main.js
 ```
 
+### 执行参数
+
+```sh
+Usage: generate [options]
+
+Options:
+  -d, --dir [p]        项目所在的绝对路径（针对全局引入）
+  -m, --module [p]     需要生成声明文件的API文件所在目录（针对局部引入） (default: "api/modules")
+  -a, --assign <p...>  为指定API生成声明（基于dir，默认当前项目）
+  -v, --verbose        输出更新日志
+  -h, --help           display help for command
+```
+
+## 关于NPM
+
+由于没有发布，只能本地局部引入或全局引入
+
+```sh
+# 克隆源码后
+npm pack
+# 局部引入
+npm install --save-dev <本地路径>/apiGenerator
+# 全局引入
+npm link
+```
+
 ## 关于原函数的差分判断
 
 针对每一个函数的注释、形参、形参类型、返回值、返回值类型，任意一个改变都会触发声明的更新
