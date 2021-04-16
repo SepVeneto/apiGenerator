@@ -98,7 +98,7 @@ function logDiff(src, dist, operate) {
         }
     });
 }
-function diff(src, dist) {
+function diff(src, dist, needLog = true) {
     const srcObj = {};
     const distObj = {};
     if (src instanceof Map) {
@@ -126,7 +126,7 @@ function diff(src, dist) {
     if (distKeys.length === 0 && srcKeys.length !== 0) {
         operate = Array(srcKeys.length).fill('delete');
     }
-    logDiff(srcObj.values, distObj.values, operate);
+    needLog && logDiff(srcObj.values, distObj.values, operate);
     return operate;
 }
 exports.default = diff;

@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import { parse, visit, types, prettyPrint } from 'recast';
-import * as babel from '@babel/parser';
+import * as babylon from 'babylon';
 import * as path from 'path';
 import diffMethod from './myers';
-import { Identifier, TSExpressionWithTypeArguments, TSMethodSignature } from '_@babel_types@7.13.0@@babel/types';
+import { AnyType, InstanceBody } from './index';
 const TNT = types.namedTypes;
 const {
   file,
@@ -13,6 +13,7 @@ const {
   tsInterfaceBody,
   tsMethodSignature,
   identifier,
+  tsBooleanKeyword,
   tsNumberKeyword,
   tsStringKeyword,
   tsAnyKeyword,
@@ -25,61 +26,9 @@ const {
   tsTypeReference,
 } = types.builders;
 
-interface InterfaceBody {
-  [key: string]: types.namedTypes.TSMethodSignature
-}
+let instanceBody = new Map();
+let tsInstanceBody = new Map();
 
-let interfaceBody = new Map<string, types.namedTypes.TSMethodSignature>();
-let tsInstanceBody = new Map<string, types.namedTypes.TSMethodSignature>();
-const BASE_PATH = path.join(__dirname, 'modules');
-const fileList: any[] = [];
-fs.promises.readdir(BASE_PATH, { encoding: 'utf-8' }).then(files => {
-  files.forEach(file => {
-    /.*\.js/.test(file) && fileList.push(file);
-  })
-  fileList.forEach(async instance => {
-    const { name } = path.parse(instance);
-    const apiJs = await fs.promises.readFile(path.join(BASE_PATH, instance), { encoding: 'utf-8'});
-    const astJs = parse(apiJs, { parser: { parse: babel.parse } })
-    let resFile = null;
-    try {
-      await fs.promises.access(path.join(BASE_PATH, name + '.d.ts'), fs.constants.F_OK);
-      const apiTs = await fs.promises.readFile(path.join(BASE_PATH, name + '.d.ts'), { encoding: 'utf-8'});
-      const astTs = parse(apiTs, { parser: require('recast/parsers/typescript') })
-      visitAst(astTs);
-      visitAst(astJs, tsInstanceBody);
-      const nodes = astTs.program.body.filter((item: any) => !TNT.ExportDefaultDeclaration.check(item))
-      const nodeBody = exportDefaultDeclaration(
-        tsInterfaceDeclaration(
-          identifier(name), tsInterfaceBody(diff(interfaceBody, tsInstanceBody))
-        )
-      );
-      const tsFile = file(program([ ...(nodes || []), nodeBody]));
-      resFile = prettyPrint(tsFile, { tabWidth: 2 }).code;
-      console.log(`更新声明文件：${name}`)
-    } catch (err) {
-      err && console.log(err)
-      console.log(`创建声明文件：${name}`)
-      visitAst(astJs);
-      const tsFile = file(
-        program(
-          [
-            exportDefaultDeclaration(
-              tsInterfaceDeclaration(
-                identifier(name), tsInterfaceBody(Object.values(interfaceBody))
-              )
-            )
-          ]
-        )
-      )
-      resFile = prettyPrint(tsFile, { tabWidth: 2 }).code
-    }
-
-    fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
-    interfaceBody.clear()
-    tsInstanceBody.clear()
-  })
-})
 function generateMethod(method: types.namedTypes.TSMethodSignature) {
   return {
     name: (<types.namedTypes.Identifier>method.key).name,
@@ -104,7 +53,7 @@ function hashMethod(params: types.namedTypes.TSMethodSignature) {
   }, 0)
   return hashValue;
 }
-function diff(jsList: Map<string, types.namedTypes.TSMethodSignature>, tsList: Map<string, types.namedTypes.TSMethodSignature>) {
+function diff(jsList: InstanceBody, tsList: InstanceBody) {
   const jsHash = [...jsList.entries()].reduce<Map<number, string>>((obj, [name, item]) => {
     const hash = hashMethod(item);
     obj.set(hash, name);
@@ -115,7 +64,7 @@ function diff(jsList: Map<string, types.namedTypes.TSMethodSignature>, tsList: M
     obj.set(hash, name);
     return obj;
   }, new Map());
-  const operate = diffMethod(tsHash, jsHash);
+  const operate = diffMethod(tsHash, jsHash, logDiff);
   let jsIndex = 0;
   let tsIndex = 0;
   const res: types.namedTypes.TSMethodSignature[] = [];
@@ -139,23 +88,19 @@ function diff(jsList: Map<string, types.namedTypes.TSMethodSignature>, tsList: M
     }
   })
   return res;
-  // return Object.keys(jsList).reduce((res, key) => {
-  //   if (tsList[key]) {
-  //     res.push(tsList[key]);
-  //   } else {
-  //     res.push(jsList[key])
-  //   }
-  //   return res;
-  // }, [])
 }
-function visitAst(ast: types.ASTNode, existNode?: AnyType) {
+function visitAst(ast: types.ASTNode, body: InstanceBody, existNode?: AnyType) {
   visit(ast, {
     visitTSMethodSignature(path) {
       path.node.comments = path.node.comments?.map(item => {
-        const value = item.value.replace(/\r\n */g, '\r\n ');
-        return types.builders.commentBlock(value)
+        if (TNT.CommentBlock.check(item)) {
+          const value = item.value.replace(/\r\n */g, '\r\n ');
+          return types.builders.commentBlock(value)
+        } else {
+          return item;
+        }
       })
-      tsInstanceBody.set((<types.namedTypes.Identifier>path.node.key).name, path.node);
+      body.set((<types.namedTypes.Identifier>path.node.key).name, path.node);
       this.traverse(path);
     },
     visitObjectMethod(path) {
@@ -179,7 +124,7 @@ function visitAst(ast: types.ASTNode, existNode?: AnyType) {
           item.value = formatComments(item.value);
         }
       })
-      interfaceBody.set(astParam.name, astRes)
+      body.set(astParam.name, astRes)
 
       this.traverse(path);
     }
@@ -255,6 +200,7 @@ function generateParams(paramsList: AnyType) {
     }
     const name = identifier(key);
     const type: AnyType = {
+      'boolean': tsBooleanKeyword(),
       'number': tsNumberKeyword(),
       'string': tsStringKeyword(),
       'null': tsNullKeyword(),
@@ -263,9 +209,83 @@ function generateParams(paramsList: AnyType) {
       '*': tsAnyKeyword(),
     };
     name.typeAnnotation = tsTypeAnnotation.from({
-      typeAnnotation: type[<string>value]
+      typeAnnotation: type[value] || tsTypeReference(identifier(value))
     })
     params.push(name);
     return params;
   }, [])
+}
+function main( fileList: string[], basePath: string) {
+  const BASE_PATH = basePath;
+  fileList.forEach(async instance => {
+    const { name } = path.parse(instance);
+    const apiJs = await fs.promises.readFile(path.join(BASE_PATH, instance), { encoding: 'utf-8'});
+    const astJs = parse(apiJs, { parser: { parse: (code: string) => babylon.parse(code, {
+      sourceType: 'module',
+      plugins: ['decorators', 'objectRestSpread'],
+    }) } })
+    let resFile = null;
+    if (fs.existsSync(path.join(BASE_PATH, name + '.d.ts'))) {
+      const apiTs = await fs.promises.readFile(path.join(BASE_PATH, name + '.d.ts'), { encoding: 'utf-8'});
+      const astTs = parse(apiTs, { parser: require('recast/parsers/typescript') })
+
+      visitAst(astJs, instanceBody);
+      visitAst(astTs, tsInstanceBody);
+
+      const nodes = astTs.program.body.filter((item: any) => !TNT.ExportDefaultDeclaration.check(item))
+      const nodeBody = exportDefaultDeclaration(
+        tsInterfaceDeclaration(
+          identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))
+        )
+      );
+      const tsFile = file(program([ ...(nodes || []), nodeBody]));
+      resFile = prettyPrint(tsFile, { tabWidth: 2 }).code;
+      console.log(`更新声明文件：${name}`)
+    } else {
+      console.log(`创建声明文件：${name}`)
+      visitAst(astJs, instanceBody);
+      const tsFile = file(
+        program(
+          [
+            exportDefaultDeclaration(
+              tsInterfaceDeclaration(
+                identifier(name), tsInterfaceBody([...instanceBody.values()])
+              )
+            )
+          ]
+        )
+      )
+      resFile = prettyPrint(tsFile, { tabWidth: 2 }).code
+    }
+
+    fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
+    instanceBody.clear()
+    tsInstanceBody.clear()
+  })
+}
+let logDiff = true;
+export default async function apiGenerate(dirpath: string, moduleName: string, files: string[], verbose: boolean) {
+  logDiff = !!verbose;
+  const BASE_PATH = path.join(dirpath, moduleName);
+  if (!fs.existsSync(BASE_PATH)) {
+    throw new Error(`路径${BASE_PATH}非法`);
+  }
+
+  let fileList: string[] = [];
+  if (files && files.length > 0) {
+    files.forEach(file => {
+      if (!fs.statSync(path.join(BASE_PATH, file))) {
+        throw new Error(`路径${BASE_PATH}上不存在文件${file}`);
+      }
+      fileList.push(file);
+    })
+  } else {
+    fileList = (await fs.promises.readdir(BASE_PATH, { encoding: 'utf-8' })).filter(file => /.*\.js/.test(file))
+  }
+  main(fileList, BASE_PATH);
+}
+
+if (module.id === '.') {
+  const BASE_PATH = path.join(__dirname, '../modules');
+  main(['api.js'], BASE_PATH);
 }

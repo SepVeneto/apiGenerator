@@ -1,3 +1,4 @@
+import { AnyType } from './index'
 function travse(src: Array<string | number> | string, dist: Array<string | number> | string) {
   const N = src.length;
   const M = dist.length;
@@ -101,7 +102,7 @@ function logDiff(src: Array<number | string> | string, dist: Array<number | stri
   })
 }
 
-export default function diff(src: string | Map<number, string>, dist: string | Map<number, string>) {
+export default function diff(src: string | Map<number, string>, dist: string | Map<number, string>, needLog: boolean = true) {
   const srcObj: AnyType = {}
   const distObj: AnyType = {};
   if (src instanceof Map) {
@@ -127,7 +128,7 @@ export default function diff(src: string | Map<number, string>, dist: string | M
   if (distKeys.length === 0 && srcKeys.length !== 0) {
       operate = Array(srcKeys.length).fill('delete');
   }
-  logDiff(srcObj.values, distObj.values, operate)
+  needLog && logDiff(srcObj.values, distObj.values, operate)
   return operate;
 }
 // console.log(traceV)
