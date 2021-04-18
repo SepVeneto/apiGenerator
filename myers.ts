@@ -4,7 +4,7 @@ function travse(src: Array<string | number> | string, dist: Array<string | numbe
   const M = dist.length;
   const max = N + M;
   const v = [new Map([[0, 0]])];
-  for (let d = 0; d < max; ++d) {
+  for (let d = 0; d <= max; ++d) {
     if (d === 0) {
       let t = 0;
       while (N > t && M > t && src[t] === dist[t]) {
@@ -131,6 +131,4 @@ export default function diff(src: string | Map<number, string>, dist: string | M
   needLog && logDiff(srcObj.values, distObj.values, operate)
   return operate;
 }
-// console.log(traceV)
-// console.log(traceV, trace)
 diff('ABC', 'BDA')
