@@ -5,11 +5,14 @@ import * as path from 'path';
 import diffMethod from './myers';
 import { AnyType, InstanceBody } from './index';
 import color from './color';
+import * as K from 'ast-types/gen/kinds';
 const TNT = types.namedTypes;
 const {
   file,
   program,
   exportDefaultDeclaration,
+  tsUnionType,
+  tsArrayType,
   tsInterfaceDeclaration,
   tsInterfaceBody,
   tsMethodSignature,
@@ -197,6 +200,34 @@ function parseParams(node: types.namedTypes.ObjectMethod) {
   // })
   return astParam;
 }
+const type: AnyType = {
+  boolean: tsBooleanKeyword(),
+  number: tsNumberKeyword(),
+  string: tsStringKeyword(),
+  null: tsNullKeyword(),
+  object: tsObjectKeyword(),
+  undefined: tsUndefinedKeyword(),
+  any: tsAnyKeyword(),
+  '*': tsAnyKeyword(),
+  '': tsAnyKeyword(),
+};
+function generateType(value: string): K.TSTypeKind {
+  const union = value.split('|').map(item => item.trim());
+  if (union && Array.isArray(union) && union.length > 1) {
+    return tsUnionType(union.map(item => generateType(item) || tsTypeReference(identifier(value))));
+  }
+  // 生成hash值时只基于最外面的类型，泛型会被视为tsTypeReference，所以没做处理
+  const unionReg = /(\S*)(\[\])+/;
+  if (unionReg.test(value)) {
+    const [, typeName, reference] = unionReg.exec(value) || [];
+    if (reference) {
+      return tsArrayType(type[typeName]);
+    } else {
+      return type[value]
+    }
+  }
+  return type[value];
+}
 
 function generateParams(paramsList: AnyType) {
   return Object.entries(paramsList).reduce<types.namedTypes.Identifier[]>((params, [key, value]) => {
@@ -204,17 +235,9 @@ function generateParams(paramsList: AnyType) {
       return params;
     }
     const name = identifier(key);
-    const type: AnyType = {
-      'boolean': tsBooleanKeyword(),
-      'number': tsNumberKeyword(),
-      'string': tsStringKeyword(),
-      'null': tsNullKeyword(),
-      'object': tsObjectKeyword(),
-      'undefined': tsUndefinedKeyword(),
-      '*': tsAnyKeyword(),
-    };
+
     name.typeAnnotation = tsTypeAnnotation.from({
-      typeAnnotation: type[value] || tsTypeReference(identifier(value))
+      typeAnnotation: generateType(value) || tsTypeReference(identifier(value))
     })
     params.push(name);
     return params;
@@ -263,12 +286,12 @@ function main( fileList: string[], basePath: string) {
         )
         resFile = prettyPrint(tsFile, { tabWidth: 2 }).code
       }
+      fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
     } catch (err) {
       const message = `文件 ${color('bright', instance)} 发生异常。`;
       err.message = message + err.message
       console.error(err)
     }
-    fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
     instanceBody.clear()
     tsInstanceBody.clear()
   })
