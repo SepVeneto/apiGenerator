@@ -4,6 +4,7 @@ import * as babylon from 'babylon';
 import * as path from 'path';
 import diffMethod from './myers';
 import { AnyType, InstanceBody } from './index';
+import color from './color';
 const TNT = types.namedTypes;
 const {
   file,
@@ -59,7 +60,7 @@ function diff(jsList: InstanceBody, tsList: InstanceBody) {
     const hash = hashMethod(item);
     if (obj.get(hash)) {
       failList.push(name);
-      throw new Error(`生成hash失败，存在重复值, 请完善${name}`);
+      throw new Error(`生成hash失败，存在重复值, 请完善 ${color('bright', name)}`);
     }
     obj.set(hash, name);
     return obj;
@@ -228,40 +229,45 @@ function main( fileList: string[], basePath: string) {
       sourceType: 'module',
       plugins: ['decorators', 'objectRestSpread'],
     }) } })
-    let resFile = null;
-    if (fs.existsSync(path.join(BASE_PATH, name + '.d.ts'))) {
-      const apiTs = await fs.promises.readFile(path.join(BASE_PATH, name + '.d.ts'), { encoding: 'utf-8'});
-      const astTs = parse(apiTs, { parser: require('recast/parsers/typescript') })
+    let resFile = '';
+    try {
+      if (fs.existsSync(path.join(BASE_PATH, name + '.d.ts'))) {
+        const apiTs = await fs.promises.readFile(path.join(BASE_PATH, name + '.d.ts'), { encoding: 'utf-8'});
+        const astTs = parse(apiTs, { parser: require('recast/parsers/typescript') })
 
-      visitAst(astJs, instanceBody);
-      visitAst(astTs, tsInstanceBody);
+        visitAst(astJs, instanceBody);
+        visitAst(astTs, tsInstanceBody);
 
-      const nodes = astTs.program.body.filter((item: any) => !TNT.ExportDefaultDeclaration.check(item))
-      const nodeBody = exportDefaultDeclaration(
-        tsInterfaceDeclaration(
-          identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))
-        )
-      );
-      const tsFile = file(program([ ...(nodes || []), nodeBody]));
-      resFile = prettyPrint(tsFile, { tabWidth: 2 }).code;
-      console.log(`更新声明文件：${name}`)
-    } else {
-      console.log(`创建声明文件：${name}`)
-      visitAst(astJs, instanceBody);
-      const tsFile = file(
-        program(
-          [
-            exportDefaultDeclaration(
-              tsInterfaceDeclaration(
-                identifier(name), tsInterfaceBody([...instanceBody.values()])
+        const nodes = astTs.program.body.filter((item: any) => !TNT.ExportDefaultDeclaration.check(item))
+        const nodeBody = exportDefaultDeclaration(
+          tsInterfaceDeclaration(
+            identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))
+          )
+        );
+        const tsFile = file(program([ ...(nodes || []), nodeBody]));
+        resFile = prettyPrint(tsFile, { tabWidth: 2 }).code;
+        console.log(`更新声明文件：${name}`)
+      } else {
+        console.log(`创建声明文件：${name}`)
+        visitAst(astJs, instanceBody);
+        const tsFile = file(
+          program(
+            [
+              exportDefaultDeclaration(
+                tsInterfaceDeclaration(
+                  identifier(name), tsInterfaceBody([...instanceBody.values()])
+                )
               )
-            )
-          ]
+            ]
+          )
         )
-      )
-      resFile = prettyPrint(tsFile, { tabWidth: 2 }).code
+        resFile = prettyPrint(tsFile, { tabWidth: 2 }).code
+      }
+    } catch (err) {
+      const message = `文件 ${color('bright', instance)} 发生异常。`;
+      err.message = message + err.message
+      console.error(err)
     }
-
     fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
     instanceBody.clear()
     tsInstanceBody.clear()
