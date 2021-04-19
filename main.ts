@@ -54,8 +54,13 @@ function hashMethod(params: types.namedTypes.TSMethodSignature) {
   return hashValue;
 }
 function diff(jsList: InstanceBody, tsList: InstanceBody) {
+  const failList = [];
   const jsHash = [...jsList.entries()].reduce<Map<number, string>>((obj, [name, item]) => {
     const hash = hashMethod(item);
+    if (obj.get(hash)) {
+      failList.push(name);
+      throw new Error(`生成hash失败，存在重复值, 请完善${name}`);
+    }
     obj.set(hash, name);
     return obj;
   }, new Map());
@@ -185,7 +190,6 @@ function parseParams(node: types.namedTypes.ObjectMethod) {
     astParam.params[item] = paramsType[item] || '*';
   })
   astParam.name = (<types.namedTypes.Identifier>node.key).name;
-  // console.log(node.comments.value)
   astParam.comments = node.comments;
   // astParam.comments?.forEach(item => {
   //   item.value = item.value.replace(/\\r\\n */g, '\r\n');

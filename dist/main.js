@@ -58,8 +58,13 @@ function hashMethod(params) {
     return hashValue;
 }
 function diff(jsList, tsList) {
+    const failList = [];
     const jsHash = [...jsList.entries()].reduce((obj, [name, item]) => {
         const hash = hashMethod(item);
+        if (obj.get(hash)) {
+            failList.push(name);
+            throw new Error(`生成hash失败，存在重复值, 请完善${name}`);
+        }
         obj.set(hash, name);
         return obj;
     }, new Map());
@@ -191,7 +196,6 @@ function parseParams(node) {
         astParam.params[item] = paramsType[item] || '*';
     });
     astParam.name = node.key.name;
-    // console.log(node.comments.value)
     astParam.comments = node.comments;
     // astParam.comments?.forEach(item => {
     //   item.value = item.value.replace(/\\r\\n */g, '\r\n');
