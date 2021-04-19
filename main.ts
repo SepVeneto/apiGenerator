@@ -214,7 +214,7 @@ const type: AnyType = {
 function generateType(value: string): K.TSTypeKind {
   const union = value.split('|').map(item => item.trim());
   if (union && Array.isArray(union) && union.length > 1) {
-    return tsUnionType(union.map(item => generateType(item) || tsTypeReference(identifier(value))));
+    return tsUnionType(union.map(item => generateType(item) || identifier(value)));
   }
   // 生成hash值时只基于最外面的类型，泛型会被视为tsTypeReference，所以没做处理
   const unionReg = /(\S*)(\[\])+/;
@@ -237,7 +237,7 @@ function generateParams(paramsList: AnyType) {
     const name = identifier(key);
 
     name.typeAnnotation = tsTypeAnnotation.from({
-      typeAnnotation: generateType(value) || tsTypeReference(identifier(value))
+      typeAnnotation: generateType(value) || identifier(value)
     })
     params.push(name);
     return params;
