@@ -116,10 +116,7 @@ function visitAst(ast: types.ASTNode, body: InstanceBody, existNode?: AnyType) {
       const astParam = parseParams(path.node);
 
       const name = identifier(astParam.name);
-      // if (existNode && existNode[astParam.name]) {
-      //   this.traverse(path);
-      //   return;
-      // }
+
       const astRes = tsMethodSignature.from({
         key: name,
         parameters: generateParams(astParam.params),
@@ -128,6 +125,7 @@ function visitAst(ast: types.ASTNode, body: InstanceBody, existNode?: AnyType) {
         })
       });
       astRes.comments = astParam.comments;
+      // 如果是行注释就不需要做对应的处理了
       astRes.comments?.forEach(item => {
         if (TNT.CommentBlock.check(item)) {
           item.value = formatComments(item.value);
