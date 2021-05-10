@@ -112,6 +112,32 @@ function visitAst(ast: types.ASTNode, body: InstanceBody, existNode?: AnyType) {
       body.set((<types.namedTypes.Identifier>path.node.key).name, path.node);
       this.traverse(path);
     },
+    visitFunctionDeclaration(path) {
+      if (!includeFunction) {
+        return false;
+      }
+      const astParam = parseParams(path.node);
+
+      const name = identifier(astParam.name);
+
+      const astRes = tsMethodSignature.from({
+        key: name,
+        parameters: generateParams(astParam.params),
+        typeAnnotation: tsTypeAnnotation.from({
+          typeAnnotation: generateReturns(astParam.return),
+        })
+      });
+      astRes.comments = astParam.comments;
+      // 如果是行注释就不需要做对应的处理了
+      astRes.comments?.forEach(item => {
+        if (TNT.CommentBlock.check(item)) {
+          item.value = formatComments(item.value);
+        }
+      })
+      body.set(astParam.name, astRes)
+
+      this.traverse(path);
+    },
     visitObjectMethod(path) {
       const astParam = parseParams(path.node);
 
@@ -163,7 +189,7 @@ function generateReturns(returns: string) {
   return annotation;
 }
 
-function parseParams(node: types.namedTypes.ObjectMethod) {
+function parseParams(node: types.namedTypes.ObjectMethod | types.namedTypes.FunctionDeclaration) {
   const astParam: AnyType = {
     name: '',
     params: {},
@@ -191,7 +217,11 @@ function parseParams(node: types.namedTypes.ObjectMethod) {
   params.forEach(item => {
     astParam.params[item] = paramsType[item] || '*';
   })
-  astParam.name = (<types.namedTypes.Identifier>node.key).name;
+  if (TNT.ObjectMethod.check(node)) {
+    astParam.name = (<types.namedTypes.Identifier>node.key).name;
+  } else if (TNT.FunctionDeclaration.check(node)) {
+    astParam.name = (<types.namedTypes.Identifier>node.id).name;
+  }
   astParam.comments = node.comments;
   // astParam.comments?.forEach(item => {
   //   item.value = item.value.replace(/\\r\\n */g, '\r\n');
@@ -295,8 +325,10 @@ function main( fileList: string[], basePath: string) {
   })
 }
 let logDiff = true;
-export default async function apiGenerate(dirpath: string, moduleName: string, files: string[], verbose: boolean) {
+let includeFunction = false;
+export default async function apiGenerate(dirpath: string, moduleName: string, files: string[], verbose: boolean, functions: boolean) {
   logDiff = !!verbose;
+  includeFunction = !!functions
   const BASE_PATH = path.join(dirpath, moduleName);
   if (!fs.existsSync(BASE_PATH)) {
     throw new Error(`路径${BASE_PATH}非法`);

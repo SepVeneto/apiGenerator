@@ -27,8 +27,9 @@ const recast_1 = require("recast");
 const babylon = __importStar(require("babylon"));
 const path = __importStar(require("path"));
 const myers_1 = __importDefault(require("./myers"));
+const color_1 = __importDefault(require("./color"));
 const TNT = recast_1.types.namedTypes;
-const { file, program, exportDefaultDeclaration, tsInterfaceDeclaration, tsInterfaceBody, tsMethodSignature, identifier, tsBooleanKeyword, tsNumberKeyword, tsStringKeyword, tsAnyKeyword, tsNullKeyword, tsVoidKeyword, tsUndefinedKeyword, tsObjectKeyword, tsTypeAnnotation, tsTypeParameterInstantiation, tsTypeReference, } = recast_1.types.builders;
+const { file, program, exportDefaultDeclaration, tsUnionType, tsArrayType, tsInterfaceDeclaration, tsInterfaceBody, tsMethodSignature, identifier, tsBooleanKeyword, tsNumberKeyword, tsStringKeyword, tsAnyKeyword, tsNullKeyword, tsVoidKeyword, tsUndefinedKeyword, tsObjectKeyword, tsTypeAnnotation, tsTypeParameterInstantiation, tsTypeReference, } = recast_1.types.builders;
 let instanceBody = new Map();
 let tsInstanceBody = new Map();
 function generateMethod(method) {
@@ -63,7 +64,7 @@ function diff(jsList, tsList) {
         const hash = hashMethod(item);
         if (obj.get(hash)) {
             failList.push(name);
-            throw new Error(`生成hash失败，存在重复值, 请完善${name}`);
+            throw new Error(`生成hash失败，存在重复值, 请完善 ${color_1.default('bright', name)}`);
         }
         obj.set(hash, name);
         return obj;
@@ -114,14 +115,13 @@ function visitAst(ast, body, existNode) {
             body.set(path.node.key.name, path.node);
             this.traverse(path);
         },
-        visitObjectMethod(path) {
+        visitFunctionDeclaration(path) {
             var _a;
+            if (!includeFunction) {
+                return false;
+            }
             const astParam = parseParams(path.node);
             const name = identifier(astParam.name);
-            // if (existNode && existNode[astParam.name]) {
-            //   this.traverse(path);
-            //   return;
-            // }
             const astRes = tsMethodSignature.from({
                 key: name,
                 parameters: generateParams(astParam.params),
@@ -130,6 +130,28 @@ function visitAst(ast, body, existNode) {
                 })
             });
             astRes.comments = astParam.comments;
+            // 如果是行注释就不需要做对应的处理了
+            (_a = astRes.comments) === null || _a === void 0 ? void 0 : _a.forEach(item => {
+                if (TNT.CommentBlock.check(item)) {
+                    item.value = formatComments(item.value);
+                }
+            });
+            body.set(astParam.name, astRes);
+            this.traverse(path);
+        },
+        visitObjectMethod(path) {
+            var _a;
+            const astParam = parseParams(path.node);
+            const name = identifier(astParam.name);
+            const astRes = tsMethodSignature.from({
+                key: name,
+                parameters: generateParams(astParam.params),
+                typeAnnotation: tsTypeAnnotation.from({
+                    typeAnnotation: generateReturns(astParam.return),
+                })
+            });
+            astRes.comments = astParam.comments;
+            // 如果是行注释就不需要做对应的处理了
             (_a = astRes.comments) === null || _a === void 0 ? void 0 : _a.forEach(item => {
                 if (TNT.CommentBlock.check(item)) {
                     item.value = formatComments(item.value);
@@ -195,12 +217,46 @@ function parseParams(node) {
     params.forEach(item => {
         astParam.params[item] = paramsType[item] || '*';
     });
-    astParam.name = node.key.name;
+    if (TNT.ObjectMethod.check(node)) {
+        astParam.name = node.key.name;
+    }
+    else if (TNT.FunctionDeclaration.check(node)) {
+        astParam.name = node.id.name;
+    }
     astParam.comments = node.comments;
     // astParam.comments?.forEach(item => {
     //   item.value = item.value.replace(/\\r\\n */g, '\r\n');
     // })
     return astParam;
+}
+const type = {
+    boolean: tsBooleanKeyword(),
+    number: tsNumberKeyword(),
+    string: tsStringKeyword(),
+    null: tsNullKeyword(),
+    object: tsObjectKeyword(),
+    undefined: tsUndefinedKeyword(),
+    any: tsAnyKeyword(),
+    '*': tsAnyKeyword(),
+    '': tsAnyKeyword(),
+};
+function generateType(value) {
+    const union = value.split('|').map(item => item.trim());
+    if (union && Array.isArray(union) && union.length > 1) {
+        return tsUnionType(union.map(item => generateType(item) || identifier(value)));
+    }
+    // 生成hash值时只基于最外面的类型，泛型会被视为tsTypeReference，所以没做处理
+    const unionReg = /(\S*)(\[\])+/;
+    if (unionReg.test(value)) {
+        const [, typeName, reference] = unionReg.exec(value) || [];
+        if (reference) {
+            return tsArrayType(type[typeName]);
+        }
+        else {
+            return type[value];
+        }
+    }
+    return type[value];
 }
 function generateParams(paramsList) {
     return Object.entries(paramsList).reduce((params, [key, value]) => {
@@ -208,17 +264,8 @@ function generateParams(paramsList) {
             return params;
         }
         const name = identifier(key);
-        const type = {
-            'boolean': tsBooleanKeyword(),
-            'number': tsNumberKeyword(),
-            'string': tsStringKeyword(),
-            'null': tsNullKeyword(),
-            'object': tsObjectKeyword(),
-            'undefined': tsUndefinedKeyword(),
-            '*': tsAnyKeyword(),
-        };
         name.typeAnnotation = tsTypeAnnotation.from({
-            typeAnnotation: type[value] || tsTypeReference(identifier(value))
+            typeAnnotation: generateType(value) || identifier(value)
         });
         params.push(name);
         return params;
@@ -233,34 +280,43 @@ function main(fileList, basePath) {
                     sourceType: 'module',
                     plugins: ['decorators', 'objectRestSpread'],
                 }) } });
-        let resFile = null;
-        if (fs.existsSync(path.join(BASE_PATH, name + '.d.ts'))) {
-            const apiTs = await fs.promises.readFile(path.join(BASE_PATH, name + '.d.ts'), { encoding: 'utf-8' });
-            const astTs = recast_1.parse(apiTs, { parser: require('recast/parsers/typescript') });
-            visitAst(astJs, instanceBody);
-            visitAst(astTs, tsInstanceBody);
-            const nodes = astTs.program.body.filter((item) => !TNT.ExportDefaultDeclaration.check(item));
-            const nodeBody = exportDefaultDeclaration(tsInterfaceDeclaration(identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))));
-            const tsFile = file(program([...(nodes || []), nodeBody]));
-            resFile = recast_1.prettyPrint(tsFile, { tabWidth: 2 }).code;
-            console.log(`更新声明文件：${name}`);
+        let resFile = '';
+        try {
+            if (fs.existsSync(path.join(BASE_PATH, name + '.d.ts'))) {
+                const apiTs = await fs.promises.readFile(path.join(BASE_PATH, name + '.d.ts'), { encoding: 'utf-8' });
+                const astTs = recast_1.parse(apiTs, { parser: require('recast/parsers/typescript') });
+                visitAst(astJs, instanceBody);
+                visitAst(astTs, tsInstanceBody);
+                const nodes = astTs.program.body.filter((item) => !TNT.ExportDefaultDeclaration.check(item));
+                const nodeBody = exportDefaultDeclaration(tsInterfaceDeclaration(identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))));
+                const tsFile = file(program([...(nodes || []), nodeBody]));
+                resFile = recast_1.prettyPrint(tsFile, { tabWidth: 2 }).code;
+                console.log(`更新声明文件：${name}`);
+            }
+            else {
+                console.log(`创建声明文件：${name}`);
+                visitAst(astJs, instanceBody);
+                const tsFile = file(program([
+                    exportDefaultDeclaration(tsInterfaceDeclaration(identifier(name), tsInterfaceBody([...instanceBody.values()])))
+                ]));
+                resFile = recast_1.prettyPrint(tsFile, { tabWidth: 2 }).code;
+            }
+            fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
         }
-        else {
-            console.log(`创建声明文件：${name}`);
-            visitAst(astJs, instanceBody);
-            const tsFile = file(program([
-                exportDefaultDeclaration(tsInterfaceDeclaration(identifier(name), tsInterfaceBody([...instanceBody.values()])))
-            ]));
-            resFile = recast_1.prettyPrint(tsFile, { tabWidth: 2 }).code;
+        catch (err) {
+            const message = `文件 ${color_1.default('bright', instance)} 发生异常。`;
+            err.message = message + err.message;
+            console.error(err);
         }
-        fs.promises.writeFile(path.join(BASE_PATH, name + '.d.ts'), resFile, { encoding: 'utf-8' });
         instanceBody.clear();
         tsInstanceBody.clear();
     });
 }
 let logDiff = true;
-async function apiGenerate(dirpath, moduleName, files, verbose) {
+let includeFunction = false;
+async function apiGenerate(dirpath, moduleName, files, verbose, functions) {
     logDiff = !!verbose;
+    includeFunction = !!functions;
     const BASE_PATH = path.join(dirpath, moduleName);
     if (!fs.existsSync(BASE_PATH)) {
         throw new Error(`路径${BASE_PATH}非法`);
