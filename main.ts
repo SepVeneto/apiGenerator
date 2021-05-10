@@ -11,6 +11,9 @@ const {
   file,
   program,
   exportDefaultDeclaration,
+  exportNamedDeclaration,
+  variableDeclaration,
+  variableDeclarator,
   tsUnionType,
   tsArrayType,
   tsInterfaceDeclaration,
@@ -289,26 +292,43 @@ function main( fileList: string[], basePath: string) {
         visitAst(astJs, instanceBody);
         visitAst(astTs, tsInstanceBody);
 
-        const nodes = astTs.program.body.filter((item: any) => !TNT.ExportDefaultDeclaration.check(item))
-        const nodeBody = exportDefaultDeclaration(
+        const nodes = astTs.program.body.filter((item: any) => (
+          !TNT.ExportDefaultDeclaration.check(item)) &&
+          !TNT.ExportNamedDeclaration.check(item)
+        )
+        const interfaceName = name.replace(/\S/, letter => letter.toUpperCase());
+        const nodeType = exportDefaultDeclaration(
           tsInterfaceDeclaration(
-            identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))
+            identifier(interfaceName), tsInterfaceBody(diff(instanceBody, tsInstanceBody))
           )
         );
-        const tsFile = file(program([ ...(nodes || []), nodeBody]));
+        const varName = identifier(name.replace(/\S/, letter => letter.toLowerCase()));
+        varName.typeAnnotation = tsTypeAnnotation(tsTypeReference(identifier(interfaceName)))
+        const nodeValue = exportNamedDeclaration(
+          variableDeclaration('const', [varName], )
+        )
+
+        const tsFile = file(program([ ...(nodes || []), nodeType, nodeValue]));
         resFile = prettyPrint(tsFile, { tabWidth: 2 }).code;
         console.log(`更新声明文件：${name}`)
       } else {
         console.log(`创建声明文件：${name}`)
         visitAst(astJs, instanceBody);
+        const interfaceName = name.replace(/\S/, letter => letter.toUpperCase());
+        const varName = identifier(name.replace(/\S/, letter => letter.toLowerCase()));
+        varName.typeAnnotation = tsTypeAnnotation(tsTypeReference(identifier(interfaceName)))
+        const nodeValue = exportNamedDeclaration(
+          variableDeclaration('const', [varName], )
+        )
         const tsFile = file(
           program(
             [
               exportDefaultDeclaration(
                 tsInterfaceDeclaration(
-                  identifier(name), tsInterfaceBody([...instanceBody.values()])
+                  identifier(interfaceName), tsInterfaceBody([...instanceBody.values()])
                 )
-              )
+              ),
+              nodeValue
             ]
           )
         )
