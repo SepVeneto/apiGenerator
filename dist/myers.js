@@ -1,5 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
+const fs_1 = __importDefault(require("fs"));
+const readline_1 = __importDefault(require("readline"));
+const js_md5_1 = __importDefault(require("js-md5"));
 function travse(src, dist) {
     const N = src.length;
     const M = dist.length;
@@ -89,7 +95,8 @@ function logDiff(src, dist, operate) {
                 // console.log(`+${dist[distIndex++]}`);
                 break;
             case 'move':
-                console.log(` ${src[srcIndex++]} `);
+                srcIndex++;
+                // console.log(` ${src[srcIndex++] } `);
                 ++distIndex;
                 break;
             case 'delete':
@@ -130,4 +137,58 @@ function diff(src, dist, needLog = true) {
     return operate;
 }
 exports.default = diff;
-diff('ABC', 'BDA');
+const readStream = fs_1.default.createReadStream('./7.211.2.1_v1.1.txt', { encoding: 'utf-8' });
+const distStream = fs_1.default.createReadStream('./7.211.2.2_v1.1.txt', { encoding: 'utf-8' });
+const src = new Map();
+const dist = new Map();
+const readLine = readline_1.default.createInterface({
+    input: readStream,
+    terminal: true,
+});
+const distLine = readline_1.default.createInterface({
+    input: distStream,
+    terminal: true,
+});
+function hash(h, c) {
+    return c + (h << 7) | h >> (8 * 8 - 6);
+}
+function hashLine(line) {
+    return js_md5_1.default(line);
+    // const buffer = Buffer.from(line);
+    // const hashValue = buffer.reduce((curr, hashValue) => {
+    //   return hash(hashValue, curr);
+    // }, 0)
+    // return hashValue;
+}
+let srcIndex = 0;
+let distIndex = 0;
+readLine.on('line', (line) => {
+    const hash = hashLine(`${line}`);
+    src.set(hash, line);
+});
+distLine.on('line', line => {
+    const hash = hashLine(`${line}`);
+    dist.set(hash, line);
+});
+function logSrc() {
+    return new Promise((resolve, reject) => {
+        readLine.on('close', () => {
+            resolve(src);
+        });
+    });
+}
+function logDist() {
+    return new Promise((resolve, reject) => {
+        distLine.on('close', () => {
+            resolve(dist);
+        });
+    });
+}
+async function log() {
+    const src = await logSrc();
+    const dist = await logDist();
+    diff(src, dist, true);
+}
+log();
+// console.log(diff(src, dist, true));
+// diff('ABC', 'BDA')

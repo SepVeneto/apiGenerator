@@ -29,7 +29,7 @@ const path = __importStar(require("path"));
 const myers_1 = __importDefault(require("./myers"));
 const color_1 = __importDefault(require("./color"));
 const TNT = recast_1.types.namedTypes;
-const { file, program, exportDefaultDeclaration, tsUnionType, tsArrayType, tsInterfaceDeclaration, tsInterfaceBody, tsMethodSignature, identifier, tsBooleanKeyword, tsNumberKeyword, tsStringKeyword, tsAnyKeyword, tsNullKeyword, tsVoidKeyword, tsUndefinedKeyword, tsObjectKeyword, tsTypeAnnotation, tsTypeParameterInstantiation, tsTypeReference, } = recast_1.types.builders;
+const { file, program, exportDefaultDeclaration, exportNamedDeclaration, variableDeclaration, variableDeclarator, tsUnionType, tsArrayType, tsInterfaceDeclaration, tsInterfaceBody, tsMethodSignature, identifier, tsBooleanKeyword, tsNumberKeyword, tsStringKeyword, tsAnyKeyword, tsNullKeyword, tsVoidKeyword, tsUndefinedKeyword, tsObjectKeyword, tsTypeAnnotation, tsTypeParameterInstantiation, tsTypeReference, } = recast_1.types.builders;
 let instanceBody = new Map();
 let tsInstanceBody = new Map();
 function generateMethod(method) {
@@ -287,17 +287,27 @@ function main(fileList, basePath) {
                 const astTs = recast_1.parse(apiTs, { parser: require('recast/parsers/typescript') });
                 visitAst(astJs, instanceBody);
                 visitAst(astTs, tsInstanceBody);
-                const nodes = astTs.program.body.filter((item) => !TNT.ExportDefaultDeclaration.check(item));
-                const nodeBody = exportDefaultDeclaration(tsInterfaceDeclaration(identifier(name), tsInterfaceBody(diff(instanceBody, tsInstanceBody))));
-                const tsFile = file(program([...(nodes || []), nodeBody]));
+                const nodes = astTs.program.body.filter((item) => (!TNT.ExportDefaultDeclaration.check(item)) &&
+                    !TNT.ExportNamedDeclaration.check(item));
+                const interfaceName = name.replace(/\S/, letter => letter.toUpperCase());
+                const nodeType = exportDefaultDeclaration(tsInterfaceDeclaration(identifier(interfaceName), tsInterfaceBody(diff(instanceBody, tsInstanceBody))));
+                const varName = identifier(name.replace(/\S/, letter => letter.toLowerCase()));
+                varName.typeAnnotation = tsTypeAnnotation(tsTypeReference(identifier(interfaceName)));
+                const nodeValue = exportNamedDeclaration(variableDeclaration('const', [varName]));
+                const tsFile = file(program([...(nodes || []), nodeType, nodeValue]));
                 resFile = recast_1.prettyPrint(tsFile, { tabWidth: 2 }).code;
                 console.log(`更新声明文件：${name}`);
             }
             else {
                 console.log(`创建声明文件：${name}`);
                 visitAst(astJs, instanceBody);
+                const interfaceName = name.replace(/\S/, letter => letter.toUpperCase());
+                const varName = identifier(name.replace(/\S/, letter => letter.toLowerCase()));
+                varName.typeAnnotation = tsTypeAnnotation(tsTypeReference(identifier(interfaceName)));
+                const nodeValue = exportNamedDeclaration(variableDeclaration('const', [varName]));
                 const tsFile = file(program([
-                    exportDefaultDeclaration(tsInterfaceDeclaration(identifier(name), tsInterfaceBody([...instanceBody.values()])))
+                    exportDefaultDeclaration(tsInterfaceDeclaration(identifier(interfaceName), tsInterfaceBody([...instanceBody.values()]))),
+                    nodeValue
                 ]));
                 resFile = recast_1.prettyPrint(tsFile, { tabWidth: 2 }).code;
             }

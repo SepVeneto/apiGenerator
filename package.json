@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "example": "tsc && node dist/main.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsc && node dist/myers.js",
     "generate": "generate"
   },
   "file": [
@@ -19,10 +19,13 @@
   "dependencies": {
     "@babel/core": "^7.13.15",
     "babel-core": "^6.26.3",
+    "commander": "^8.0.0",
+    "js-md5": "^0.7.3",
     "recast": "^0.20.4"
   },
   "devDependencies": {
     "@types/babylon": "^6.16.5",
+    "@types/js-md5": "^0.4.3",
     "@types/node": "^14.14.37"
   }
 }

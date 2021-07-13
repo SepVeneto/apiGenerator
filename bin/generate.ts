@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import apiGenerate from '../main';
-import commander from 'commander'
+import { program as commander} from 'commander'
 
 commander
   .option('-d, --dir [p]', '项目所在的绝对路径（针对全局引入）', process.cwd())
@@ -13,4 +13,3 @@ commander
     apiGenerate(dir, module, assign, verbose, functions);
   })
 commander.parse(process.argv)
-
