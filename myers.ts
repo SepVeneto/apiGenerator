@@ -1,7 +1,4 @@
 import { AnyType } from './index'
-import fs from 'fs';
-import readline from 'readline'
-import md5 from 'js-md5';
 
 function travse(src: Array<string | number> | string, dist: Array<string | number> | string) {
   const N = src.length;
@@ -136,63 +133,6 @@ export default function diff(src: string | Map<number, string>, dist: string | M
   needLog && logDiff(srcObj.values, distObj.values, operate)
   return operate;
 }
-
-const readStream = fs.createReadStream('./example/1.txt', { encoding: 'utf-8' });
-const distStream = fs.createReadStream('./example/2.txt', { encoding: 'utf-8' });
-const src = new Map();
-const dist = new Map();
-const readLine = readline.createInterface({
-  input: readStream,
-  terminal: true,
-})
-const distLine = readline.createInterface({
-  input: distStream,
-  terminal: true,
-})
-function hash(h: number, c: number) {
-  return c + (h << 7 ) | h >> (8 * 8 - 6)
-}
-function hashLine(line: string) {
-  return md5(line);
-  // const buffer = Buffer.from(line);
-  // const hashValue = buffer.reduce((curr, hashValue) => {
-  //   return hash(hashValue, curr);
-  // }, 0)
-  // return hashValue;
-}
-let srcIndex = 0;
-let distIndex = 0;
-readLine.on('line', (line) => {
-  const hash = hashLine(`${line}`);
-  src.set(hash, line);
-})
-distLine.on('line', line => {
-  const hash = hashLine(`${line}`);
-  dist.set(hash, line);
-})
-
-function logSrc() {
-  return new Promise((resolve, reject) => {
-    readLine.on('close', () => {
-      resolve(src);
-    })
-  })
-}
-function logDist() {
-  return new Promise((resolve, reject) => {
-    distLine.on('close', () => {
-      resolve(dist);
-    })
-  })
-}
-
-async function log() {
-  const src = await logSrc();
-  const dist = await logDist();
-  diff(src as any, dist as any, true);
-}
-
-log();
 
 // console.log(diff(src, dist, true));
 

@@ -1,5 +1,2 @@
-export default interface Api {
-  login(username: any, password: any): Promise<Response>;
-}
-
+export default interface Api {}
 export const api: Api;
