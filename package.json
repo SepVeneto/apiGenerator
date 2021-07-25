@@ -8,7 +8,8 @@
     "build": "vite build example",
     "example": "tsc && node dist/main.js",
     "test": "tsc && node dist/myers.js",
-    "generate": "generate"
+    "generate": "generate",
+    "gh-pages": "git subtree push --prefix example/gh-pages origin gh-pages"
   },
   "file": [
     "dist"
