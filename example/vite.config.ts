@@ -11,9 +11,9 @@ export default defineConfig(({ command }) => {
       }
     }
   };
-  console.log(__dirname, path.resolve('..', __dirname, 'gh-pages'))
   return {
     plugins: [vue(), vueJsx()],
+    base: '/apiGenerator/',
     build: {
       outDir: path.resolve('..', __dirname, 'gh-pages'),
     },
